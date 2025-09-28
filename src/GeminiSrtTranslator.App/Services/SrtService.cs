@@ -1,5 +1,6 @@
 using GeminiSrtTranslator.Models;
 using System.Globalization;
+using System.IO;
 
 namespace GeminiSrtTranslator.Services;
 
@@ -7,8 +8,8 @@ public static class SrtService
 {
     private static readonly string[] TimeFormats =
     {
-        "hh\:mm\:ss\,fff",
-        "hh\:mm\:ss\;fff"
+        @"hh\:mm\:ss\,fff",
+        @"hh\:mm\:ss\;fff"
     };
 
     public static async Task<IReadOnlyList<SubtitleEntry>> LoadAsync(string path, CancellationToken cancellationToken = default)
@@ -107,7 +108,7 @@ public static class SrtService
     }
 
     private static string FormatTimestamp(TimeSpan timeSpan)
-        => timeSpan.ToString("hh\:mm\:ss\,fff", CultureInfo.InvariantCulture);
+        => timeSpan.ToString(@"hh\:mm\:ss\,fff", CultureInfo.InvariantCulture);
 
     private static bool TryParseTimestamp(string value, out TimeSpan result)
         => TimeSpan.TryParseExact(value, TimeFormats, CultureInfo.InvariantCulture, out result);

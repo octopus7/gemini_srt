@@ -1,0 +1,28 @@
+# 빌드 산출물
+bin/
+obj/
+
+# 사용자별 설정 파일
+.vs/
+*.user
+*.userosscache
+*.suo
+*.swp
+
+# IDE/도구 캐시
+*.ide
+*.rsuser
+
+# 로그 및 임시 파일
+*.log
+*.tmp
+*.temp
+
+# 패키지/게시 산출물
+app.publish/
+PublishProfiles/
+
+# OS 자동 생성 파일
+Thumbs.db
+Desktop.ini
+.DS_Store
