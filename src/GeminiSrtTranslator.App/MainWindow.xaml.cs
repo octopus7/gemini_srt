@@ -26,6 +26,7 @@ public partial class MainWindow : Window
     private CancellationTokenSource? _translationCancellation;
     private string? _loadedFilePath;
     private string? _autoSavePath;
+    private readonly Stopwatch _translationStopwatch = new();
 
     public MainWindow()
     {
@@ -152,18 +153,23 @@ public partial class MainWindow : Window
         {
             SetTranslationUiState(isTranslating: true);
             _autoSavePath = BuildAutoSavePath(targetLanguage);
+            _translationStopwatch.Restart();
             await TranslateAsync(apiKey, modelName, sourceLanguage, targetLanguage, preserveFormatting, _autoSavePath, _translationCancellation.Token);
+            _translationStopwatch.Stop();
+            var elapsed = FormatElapsed(_translationStopwatch.Elapsed);
             StatusText.Text = string.IsNullOrWhiteSpace(_autoSavePath)
-                ? "번역이 완료되었습니다."
-                : $"번역이 완료되었습니다. {_autoSavePath} 저장됨";
+                ? $"번역이 완료되었습니다. (소요 시간: {elapsed})"
+                : $"번역이 완료되었습니다. {_autoSavePath} 저장됨 (소요 시간: {elapsed})";
         }
         catch (OperationCanceledException)
         {
+            _translationStopwatch.Stop();
             StatusText.Text = "번역이 취소되었습니다.";
             ResetState(preserveStatus: true);
         }
         catch (Exception ex)
         {
+            _translationStopwatch.Stop();
             MessageBox.Show(this, ex.Message, "번역 오류", MessageBoxButton.OK, MessageBoxImage.Error);
             StatusText.Text = "오류가 발생했습니다.";
         }
@@ -267,6 +273,23 @@ public partial class MainWindow : Window
         }
 
         SetTranslationUiState(isTranslating: false);
+    }
+
+    private static string FormatElapsed(TimeSpan elapsed)
+    {
+        if (elapsed.TotalHours >= 1)
+        {
+            return $"{(int)elapsed.TotalHours}시간 {elapsed.Minutes:D2}분 {elapsed.Seconds:D2}초";
+        }
+
+        if (elapsed.TotalMinutes >= 1)
+        {
+            return $"{(int)elapsed.TotalMinutes}분 {elapsed.Seconds:D2}초";
+        }
+
+        return elapsed.TotalSeconds < 1
+            ? $"{elapsed.TotalMilliseconds:0}ms"
+            : $"{elapsed.TotalSeconds:0.0}초";
     }
 
     private async Task SaveAutoTranslatedFileAsync(string path, CancellationToken cancellationToken)
