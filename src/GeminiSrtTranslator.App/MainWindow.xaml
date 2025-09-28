@@ -1,0 +1,88 @@
+<Window x:Class="GeminiSrtTranslator.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Gemini SRT 번역기" Height="720" Width="1080"
+        WindowStartupLocation="CenterScreen">
+    <Grid Margin="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
+
+        <StackPanel Orientation="Horizontal" Grid.Row="0" Margin="0 0 0 8" VerticalAlignment="Center" Spacing="8">
+            <TextBlock Text="Gemini API Key" VerticalAlignment="Center" />
+            <PasswordBox x:Name="ApiKeyBox" Width="260" PasswordChar="●"/>
+            <TextBlock Text="원본 언어" VerticalAlignment="Center" Margin="16 0 0 0" />
+            <ComboBox x:Name="SourceLanguageBox" Width="120" SelectedIndex="0">
+                <ComboBoxItem Content="auto" />
+                <ComboBoxItem Content="ko" />
+                <ComboBoxItem Content="en" />
+                <ComboBoxItem Content="ja" />
+                <ComboBoxItem Content="zh" />
+            </ComboBox>
+            <TextBlock Text="목표 언어" VerticalAlignment="Center" Margin="16 0 0 0" />
+            <ComboBox x:Name="TargetLanguageBox" Width="120" SelectedIndex="1">
+                <ComboBoxItem Content="ko" />
+                <ComboBoxItem Content="en" />
+                <ComboBoxItem Content="ja" />
+                <ComboBoxItem Content="zh" />
+                <ComboBoxItem Content="es" />
+            </ComboBox>
+            <CheckBox x:Name="PreserveFormattingBox" Content="서식 유지" Margin="16 0 0 0" IsChecked="True"/>
+        </StackPanel>
+
+        <Grid Grid.Row="1" Margin="0 0 0 8">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <TextBox x:Name="FilePathBox" Margin="0 0 8 0" VerticalContentAlignment="Center"/>
+            <Button Grid.Column="1" Content="불러오기" Width="96" Click="OnBrowseClicked" Margin="0 0 8 0" />
+            <Button Grid.Column="2" Content="초기화" Width="96" Click="OnResetClicked" />
+        </Grid>
+
+        <StackPanel Orientation="Horizontal" Grid.Row="2" Margin="0 0 0 8" Spacing="8">
+            <Button x:Name="TranslateButton" Content="번역 실행" Width="110" Click="OnTranslateClicked" />
+            <Button x:Name="SaveButton" Content="번역 저장" Width="110" Click="OnSaveClicked" IsEnabled="False" />
+            <ProgressBar x:Name="Progress" Width="240" Height="18" Minimum="0" Maximum="100" Visibility="Collapsed" />
+            <TextBlock x:Name="StatusText" VerticalAlignment="Center" />
+        </StackPanel>
+
+        <DataGrid Grid.Row="3"
+                  x:Name="SubtitleGrid"
+                  AutoGenerateColumns="False"
+                  CanUserAddRows="False"
+                  CanUserDeleteRows="False"
+                  IsReadOnly="False"
+                  Margin="0 0 0 8">
+            <DataGrid.Columns>
+                <DataGridTextColumn Header="#" Binding="{Binding Index}" Width="50" IsReadOnly="True" />
+                <DataGridTextColumn Header="시작" Width="140" IsReadOnly="True">
+                    <DataGridTextColumn.Binding>
+                        <Binding Path="StartTime" StringFormat="{}{0:hh\\:mm\\:ss\\,fff}" />
+                    </DataGridTextColumn.Binding>
+                </DataGridTextColumn>
+                <DataGridTextColumn Header="종료" Width="140" IsReadOnly="True">
+                    <DataGridTextColumn.Binding>
+                        <Binding Path="EndTime" StringFormat="{}{0:hh\\:mm\\:ss\\,fff}" />
+                    </DataGridTextColumn.Binding>
+                </DataGridTextColumn>
+                <DataGridTextColumn Header="원문" Binding="{Binding Text}" Width="*" IsReadOnly="True" />
+                <DataGridTextColumn Header="번역" Binding="{Binding TranslatedText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Width="*" />
+            </DataGrid.Columns>
+        </DataGrid>
+
+        <StatusBar Grid.Row="4">
+            <StatusBarItem>
+                <TextBlock x:Name="FooterText" />
+            </StatusBarItem>
+        </StatusBar>
+    </Grid>
+</Window>
