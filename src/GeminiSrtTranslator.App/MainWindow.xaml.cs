@@ -1,3 +1,4 @@
+using System;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
@@ -19,6 +20,7 @@ public partial class MainWindow : Window
 
     private readonly ObservableCollection<SubtitleEntry> _entries = new();
     private readonly GeminiTranslationService _translationService = new(new HttpClient());
+    private readonly AppSettings _settings;
 
     private CancellationTokenSource? _translationCancellation;
     private string? _loadedFilePath;
@@ -26,8 +28,16 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        _settings = SettingsService.Load();
+
         SubtitleGrid.ItemsSource = _entries;
         FooterText.Text = "SRT 파일을 불러와 주세요.";
+        if (!string.IsNullOrWhiteSpace(_settings.GeminiApiKey))
+        {
+            ApiKeyBox.Password = _settings.GeminiApiKey;
+        }
+
+        ApiKeyBox.PasswordChanged += OnApiKeyChanged;
     }
 
     private async void OnBrowseClicked(object sender, RoutedEventArgs e)
@@ -100,6 +110,8 @@ public partial class MainWindow : Window
             MessageBox.Show(this, "Gemini API 키를 입력하세요.", "안내", MessageBoxButton.OK, MessageBoxImage.Information);
             return;
         }
+
+        PersistApiKey(apiKey);
 
         var sourceLanguage = GetSelectedLanguage(SourceLanguageBox) ?? "auto";
         var targetLanguage = GetSelectedLanguage(TargetLanguageBox) ?? "ko";
@@ -253,6 +265,31 @@ public partial class MainWindow : Window
         }
 
         return comboBox.Text;
+    }
+
+    private void OnApiKeyChanged(object sender, RoutedEventArgs e)
+    {
+        var apiKey = ApiKeyBox.Password ?? string.Empty;
+        PersistApiKey(apiKey.Trim());
+    }
+
+    private void PersistApiKey(string apiKey)
+    {
+        if (string.Equals(_settings.GeminiApiKey, apiKey, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        _settings.GeminiApiKey = apiKey;
+        try
+        {
+            SettingsService.Save(_settings);
+        }
+        catch (Exception ex)
+        {
+            StatusText.Text = "API 키 저장에 실패했습니다.";
+            System.Diagnostics.Debug.WriteLine($"Failed to persist API key: {ex.Message}");
+        }
     }
 }
 
