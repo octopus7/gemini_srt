@@ -108,12 +108,19 @@ public partial class MainWindow : Window
 
     private void OnResetClicked(object sender, RoutedEventArgs e)
     {
-        _entries.Clear();
-        _loadedFilePath = null;
-        _autoSavePath = null;
-        FilePathBox.Text = string.Empty;
-        FooterText.Text = "SRT 파일을 불러와 주세요.";
-        StatusText.Text = string.Empty;
+        if (_translationCancellation is { IsCancellationRequested: false })
+        {
+            StatusText.Text = "번역을 중지합니다...";
+            _translationCancellation.Cancel();
+            return;
+        }
+
+        if (_translationCancellation is { IsCancellationRequested: true })
+        {
+            return;
+        }
+
+        ResetState(preserveStatus: false);
     }
 
     private async void OnTranslateClicked(object sender, RoutedEventArgs e)
@@ -153,6 +160,7 @@ public partial class MainWindow : Window
         catch (OperationCanceledException)
         {
             StatusText.Text = "번역이 취소되었습니다.";
+            ResetState(preserveStatus: true);
         }
         catch (Exception ex)
         {
@@ -222,6 +230,8 @@ public partial class MainWindow : Window
         Progress.Visibility = isTranslating ? Visibility.Visible : Visibility.Collapsed;
         Progress.Value = 0;
         ModelBox.IsEnabled = !isTranslating;
+        BrowseButton.IsEnabled = !isTranslating;
+        ResetButton.Content = isTranslating ? "번역 중지" : "초기화";
     }
 
     private void SetBusyState(bool isBusy, string? message = null)
@@ -237,6 +247,26 @@ public partial class MainWindow : Window
         {
             Progress.IsIndeterminate = false;
         }
+    }
+
+    private void ResetState(bool preserveStatus)
+    {
+        if (_translationCancellation is { IsCancellationRequested: false } cts)
+        {
+            cts.Cancel();
+        }
+
+        _entries.Clear();
+        _loadedFilePath = null;
+        _autoSavePath = null;
+        FilePathBox.Text = string.Empty;
+        FooterText.Text = "SRT 파일을 불러와 주세요.";
+        if (!preserveStatus)
+        {
+            StatusText.Text = string.Empty;
+        }
+
+        SetTranslationUiState(isTranslating: false);
     }
 
     private async Task SaveAutoTranslatedFileAsync(string path, CancellationToken cancellationToken)
