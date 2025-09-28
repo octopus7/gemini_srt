@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.IO;
@@ -147,6 +148,8 @@ public partial class MainWindow : Window
         var modelName = GetSelectedModel();
         PersistSelectedModel(modelName);
 
+        await TryApplyExistingTranslationAsync(targetLanguage).ConfigureAwait(true);
+
         _translationCancellation = new CancellationTokenSource();
 
         try
@@ -154,12 +157,21 @@ public partial class MainWindow : Window
             SetTranslationUiState(isTranslating: true);
             _autoSavePath = BuildAutoSavePath(targetLanguage);
             _translationStopwatch.Restart();
-            await TranslateAsync(apiKey, modelName, sourceLanguage, targetLanguage, preserveFormatting, _autoSavePath, _translationCancellation.Token);
+            var translated = await TranslateAsync(apiKey, modelName, sourceLanguage, targetLanguage, preserveFormatting, _autoSavePath, _translationCancellation.Token).ConfigureAwait(true);
             _translationStopwatch.Stop();
             var elapsed = FormatElapsed(_translationStopwatch.Elapsed);
-            StatusText.Text = string.IsNullOrWhiteSpace(_autoSavePath)
-                ? $"번역이 완료되었습니다. (소요 시간: {elapsed})"
-                : $"번역이 완료되었습니다. {_autoSavePath} 저장됨 (소요 시간: {elapsed})";
+            if (translated)
+            {
+                StatusText.Text = string.IsNullOrWhiteSpace(_autoSavePath)
+                    ? $"번역이 완료되었습니다. (소요 시간: {elapsed})"
+                    : $"번역이 완료되었습니다. {_autoSavePath} 저장됨 (소요 시간: {elapsed})";
+            }
+            else
+            {
+                StatusText.Text = string.IsNullOrWhiteSpace(_autoSavePath)
+                    ? $"이미 번역된 자막입니다. (확인 시간: {elapsed})"
+                    : $"{_autoSavePath}에서 번역을 불러왔습니다. (확인 시간: {elapsed})";
+            }
         }
         catch (OperationCanceledException)
         {
@@ -180,21 +192,39 @@ public partial class MainWindow : Window
         }
     }
 
-    private async Task TranslateAsync(string apiKey, string? modelName, string sourceLanguage, string targetLanguage, bool preserveFormatting, string? autoSavePath, CancellationToken cancellationToken)
+    private async Task<bool> TranslateAsync(string apiKey, string? modelName, string sourceLanguage, string targetLanguage, bool preserveFormatting, string? autoSavePath, CancellationToken cancellationToken)
     {
-        var total = _entries.Count;
+        var batches = _entries
+            .Where(NeedsTranslation)
+            .OrderBy(e => e.Index)
+            .ToList();
+
+        if (batches.Count == 0)
+        {
+            Progress.Visibility = Visibility.Collapsed;
+            Progress.Value = 0;
+            if (string.IsNullOrWhiteSpace(_autoSavePath))
+            {
+                FooterText.Text = $"목표 언어: {targetLanguage} | 완료: {_entries.Count}/{_entries.Count}";
+            }
+            else
+            {
+                FooterText.Text = $"목표 언어: {targetLanguage} | 완료: {_entries.Count}/{_entries.Count} | 자동 저장: {_autoSavePath}";
+            }
+            return false;
+        }
+
+        var total = batches.Count;
         var processed = 0;
 
         Progress.Visibility = Visibility.Visible;
         Progress.Value = 0;
         StatusText.Text = "Gemini 번역 요청 중...";
 
-        var orderedEntries = _entries.OrderBy(e => e.Index).ToList();
-
-        for (var i = 0; i < orderedEntries.Count; i += BatchSize)
+        for (var i = 0; i < batches.Count; i += BatchSize)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var batch = orderedEntries.Skip(i).Take(BatchSize).ToList();
+            var batch = batches.Skip(i).Take(BatchSize).ToList();
             var translations = await _translationService.TranslateBatchAsync(batch, apiKey, modelName, sourceLanguage, targetLanguage, preserveFormatting, cancellationToken).ConfigureAwait(true);
 
             foreach (var entry in batch)
@@ -213,6 +243,8 @@ public partial class MainWindow : Window
                 await SaveAutoTranslatedFileAsync(autoSavePath, cancellationToken).ConfigureAwait(true);
             }
         }
+
+        return true;
     }
 
     private void UpdateProgress(int processed, int total, string targetLanguage)
@@ -265,6 +297,7 @@ public partial class MainWindow : Window
         _entries.Clear();
         _loadedFilePath = null;
         _autoSavePath = null;
+        _translationStopwatch.Reset();
         FilePathBox.Text = string.Empty;
         FooterText.Text = "SRT 파일을 불러와 주세요.";
         if (!preserveStatus)
@@ -273,6 +306,51 @@ public partial class MainWindow : Window
         }
 
         SetTranslationUiState(isTranslating: false);
+    }
+
+    private async Task TryApplyExistingTranslationAsync(string targetLanguage)
+    {
+        if (string.IsNullOrWhiteSpace(_loadedFilePath))
+        {
+            return;
+        }
+
+        var path = BuildAutoSavePath(targetLanguage);
+        if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+        {
+            return;
+        }
+
+        try
+        {
+            var translatedEntries = await SrtService.LoadAsync(path).ConfigureAwait(true);
+            var translatedLookup = translatedEntries.ToDictionary(e => e.Index);
+
+            foreach (var entry in _entries)
+            {
+                if (translatedLookup.TryGetValue(entry.Index, out var translated))
+                {
+                    if (!string.Equals(entry.Text?.Trim(), translated.Text?.Trim(), StringComparison.Ordinal))
+                    {
+                        entry.TranslatedText = translated.Text;
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"기존 번역 파일 로드 실패: {ex.Message}");
+        }
+    }
+
+    private static bool NeedsTranslation(SubtitleEntry entry)
+    {
+        if (string.IsNullOrWhiteSpace(entry.TranslatedText))
+        {
+            return true;
+        }
+
+        return string.Equals(entry.Text?.Trim(), entry.TranslatedText.Trim(), StringComparison.Ordinal);
     }
 
     private static string FormatElapsed(TimeSpan elapsed)
