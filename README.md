@@ -1,5 +1,7 @@
 # Gemini SRT Translator
 
+![Gemini SRT Translator 앱 스크린샷](GeminiSRT.png)
+
 WPF 기반의 SRT 자막 번역 도구입니다. Google Gemini API의 `generateContent`를 지원하는 모델(기본값: `gemini-1.5-flash`)을 이용해 자막 문장을 지정한 언어로 일괄 번역하고, 번역본을 새 SRT 파일로 저장할 수 있습니다.
 
 ## 주요 기능
