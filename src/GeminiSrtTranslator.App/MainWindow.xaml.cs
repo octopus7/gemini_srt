@@ -25,6 +25,7 @@ public partial class MainWindow : Window
 
     private CancellationTokenSource? _translationCancellation;
     private string? _loadedFilePath;
+    private string? _autoSavePath;
 
     public MainWindow()
     {
@@ -90,9 +91,9 @@ public partial class MainWindow : Window
             }
 
             _loadedFilePath = path;
+            _autoSavePath = null;
             FilePathBox.Text = path;
             FooterText.Text = $"불러온 항목: {_entries.Count}개";
-            SaveButton.IsEnabled = _entries.Any(e => !string.IsNullOrWhiteSpace(e.TranslatedText));
             StatusText.Text = "";
         }
         catch (Exception ex)
@@ -109,10 +110,10 @@ public partial class MainWindow : Window
     {
         _entries.Clear();
         _loadedFilePath = null;
+        _autoSavePath = null;
         FilePathBox.Text = string.Empty;
         FooterText.Text = "SRT 파일을 불러와 주세요.";
         StatusText.Text = string.Empty;
-        SaveButton.IsEnabled = false;
     }
 
     private async void OnTranslateClicked(object sender, RoutedEventArgs e)
@@ -143,9 +144,11 @@ public partial class MainWindow : Window
         try
         {
             SetTranslationUiState(isTranslating: true);
-            await TranslateAsync(apiKey, modelName, sourceLanguage, targetLanguage, preserveFormatting, _translationCancellation.Token);
-            StatusText.Text = "번역이 완료되었습니다.";
-            SaveButton.IsEnabled = true;
+            _autoSavePath = BuildAutoSavePath(targetLanguage);
+            await TranslateAsync(apiKey, modelName, sourceLanguage, targetLanguage, preserveFormatting, _autoSavePath, _translationCancellation.Token);
+            StatusText.Text = string.IsNullOrWhiteSpace(_autoSavePath)
+                ? "번역이 완료되었습니다."
+                : $"번역이 완료되었습니다. {_autoSavePath} 저장됨";
         }
         catch (OperationCanceledException)
         {
@@ -163,7 +166,7 @@ public partial class MainWindow : Window
         }
     }
 
-    private async Task TranslateAsync(string apiKey, string? modelName, string sourceLanguage, string targetLanguage, bool preserveFormatting, CancellationToken cancellationToken)
+    private async Task TranslateAsync(string apiKey, string? modelName, string sourceLanguage, string targetLanguage, bool preserveFormatting, string? autoSavePath, CancellationToken cancellationToken)
     {
         var total = _entries.Count;
         var processed = 0;
@@ -190,6 +193,11 @@ public partial class MainWindow : Window
 
             processed += batch.Count;
             UpdateProgress(processed, total, targetLanguage);
+
+            if (!string.IsNullOrWhiteSpace(autoSavePath))
+            {
+                await SaveAutoTranslatedFileAsync(autoSavePath, cancellationToken).ConfigureAwait(true);
+            }
         }
     }
 
@@ -198,13 +206,19 @@ public partial class MainWindow : Window
         var percentage = total == 0 ? 0 : processed * 100.0 / total;
         Progress.Value = percentage;
         StatusText.Text = $"{processed}/{total} 문장 번역 ({percentage:0.#}%)";
-        FooterText.Text = $"목표 언어: {targetLanguage} | 완료: {processed}/{total}";
+        if (string.IsNullOrWhiteSpace(_autoSavePath))
+        {
+            FooterText.Text = $"목표 언어: {targetLanguage} | 완료: {processed}/{total}";
+        }
+        else
+        {
+            FooterText.Text = $"목표 언어: {targetLanguage} | 완료: {processed}/{total} | 자동 저장: {_autoSavePath}";
+        }
     }
 
     private void SetTranslationUiState(bool isTranslating)
     {
         TranslateButton.IsEnabled = !isTranslating;
-        SaveButton.IsEnabled = !isTranslating && _entries.Any(e => !string.IsNullOrWhiteSpace(e.TranslatedText));
         Progress.Visibility = isTranslating ? Visibility.Visible : Visibility.Collapsed;
         Progress.Value = 0;
         ModelBox.IsEnabled = !isTranslating;
@@ -225,58 +239,36 @@ public partial class MainWindow : Window
         }
     }
 
-    private void OnSaveClicked(object sender, RoutedEventArgs e)
-    {
-        if (_entries.Count == 0)
-        {
-            MessageBox.Show(this, "저장할 자막이 없습니다.", "안내", MessageBoxButton.OK, MessageBoxImage.Information);
-            return;
-        }
-
-        var dialog = new SaveFileDialog
-        {
-            Filter = "SRT 파일 (*.srt)|*.srt|모든 파일 (*.*)|*.*",
-            AddExtension = true,
-            FileName = BuildSuggestedFileName()
-        };
-
-        if (dialog.ShowDialog() != true)
-        {
-            return;
-        }
-
-        SaveTranslatedFileAsync(dialog.FileName).FireAndForgetSafeAsync();
-    }
-
-    private async Task SaveTranslatedFileAsync(string path)
+    private async Task SaveAutoTranslatedFileAsync(string path, CancellationToken cancellationToken)
     {
         try
         {
-            SetBusyState(true, "번역 자막 저장 중...");
-            await SrtService.SaveAsync(path, _entries, useTranslatedText: true).ConfigureAwait(true);
-            StatusText.Text = "저장이 완료되었습니다.";
+            await SrtService.SaveAsync(path, _entries, useTranslatedText: true, cancellationToken).ConfigureAwait(true);
         }
         catch (Exception ex)
         {
-            MessageBox.Show(this, ex.Message, "저장 오류", MessageBoxButton.OK, MessageBoxImage.Error);
-        }
-        finally
-        {
-            SetBusyState(false);
+            Debug.WriteLine($"자동 저장 실패: {ex.Message}");
+            throw;
         }
     }
 
-    private string BuildSuggestedFileName()
+    private string? BuildAutoSavePath(string targetLanguage)
     {
         if (string.IsNullOrWhiteSpace(_loadedFilePath))
         {
-            return "translated.srt";
+            return null;
         }
 
         var directory = Path.GetDirectoryName(_loadedFilePath) ?? string.Empty;
         var fileName = Path.GetFileNameWithoutExtension(_loadedFilePath);
         var extension = Path.GetExtension(_loadedFilePath);
-        return Path.Combine(directory, $"{fileName}.translated{extension}");
+        if (string.IsNullOrWhiteSpace(extension))
+        {
+            extension = ".srt";
+        }
+
+        var suffix = string.IsNullOrWhiteSpace(targetLanguage) ? "translated" : targetLanguage.Trim();
+        return Path.Combine(directory, $"{fileName}.{suffix}{extension}");
     }
 
     private static string? GetSelectedLanguage(ComboBox comboBox)
@@ -357,23 +349,6 @@ public partial class MainWindow : Window
         catch (Exception ex)
         {
             Debug.WriteLine($"Failed to persist model: {ex.Message}");
-        }
-    }
-}
-
-internal static class TaskExtensions
-{
-    public static async void FireAndForgetSafeAsync(this Task task)
-    {
-        try
-        {
-            await task.ConfigureAwait(false);
-        }
-        catch (Exception ex)
-        {
-            // UI 스레드에 안전하게 예외를 보고
-            Application.Current.Dispatcher.Invoke(() =>
-                MessageBox.Show(ex.Message, "비동기 작업 오류", MessageBoxButton.OK, MessageBoxImage.Error));
         }
     }
 }

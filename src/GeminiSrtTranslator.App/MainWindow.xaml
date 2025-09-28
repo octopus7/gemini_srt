@@ -46,13 +46,12 @@
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
             <TextBox x:Name="FilePathBox" Margin="0 0 8 0" VerticalContentAlignment="Center"/>
-            <Button Grid.Column="1" Content="불러오기" Width="96" Click="OnBrowseClicked" Margin="0 0 8 0" />
-            <Button Grid.Column="2" Content="초기화" Width="96" Click="OnResetClicked" />
+            <Button x:Name="BrowseButton" Grid.Column="1" Content="불러오기" Width="96" Click="OnBrowseClicked" Margin="0 0 8 0" />
+            <Button x:Name="ResetButton" Grid.Column="2" Content="초기화" Width="96" Click="OnResetClicked" />
         </Grid>
 
         <StackPanel Orientation="Horizontal" Grid.Row="2" Margin="0 0 0 8">
             <Button x:Name="TranslateButton" Content="번역 실행" Width="110" Click="OnTranslateClicked" Margin="0 0 8 0" />
-            <Button x:Name="SaveButton" Content="번역 저장" Width="110" Click="OnSaveClicked" IsEnabled="False" Margin="0 0 8 0" />
             <ProgressBar x:Name="Progress" Width="240" Height="18" Minimum="0" Maximum="100" Visibility="Collapsed" Margin="0 0 8 0" />
             <TextBlock x:Name="StatusText" VerticalAlignment="Center" />
         </StackPanel>
