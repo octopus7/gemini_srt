@@ -1,5 +1,6 @@
 using System;
 using System.Collections.ObjectModel;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
@@ -30,6 +31,19 @@ public partial class MainWindow : Window
         InitializeComponent();
         _settings = SettingsService.Load();
 
+        if (string.IsNullOrWhiteSpace(_settings.PreferredModel))
+        {
+            _settings.PreferredModel = GeminiTranslationService.DefaultModelName;
+            try
+            {
+                SettingsService.Save(_settings);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Failed to persist default model: {ex.Message}");
+            }
+        }
+
         SubtitleGrid.ItemsSource = _entries;
         FooterText.Text = "SRT 파일을 불러와 주세요.";
         if (!string.IsNullOrWhiteSpace(_settings.GeminiApiKey))
@@ -37,7 +51,12 @@ public partial class MainWindow : Window
             ApiKeyBox.Password = _settings.GeminiApiKey;
         }
 
+        ModelBox.Text = string.IsNullOrWhiteSpace(_settings.PreferredModel)
+            ? GeminiTranslationService.DefaultModelName
+            : _settings.PreferredModel;
+
         ApiKeyBox.PasswordChanged += OnApiKeyChanged;
+        ModelBox.LostFocus += OnModelTextChanged;
     }
 
     private async void OnBrowseClicked(object sender, RoutedEventArgs e)
@@ -116,13 +135,15 @@ public partial class MainWindow : Window
         var sourceLanguage = GetSelectedLanguage(SourceLanguageBox) ?? "auto";
         var targetLanguage = GetSelectedLanguage(TargetLanguageBox) ?? "ko";
         var preserveFormatting = PreserveFormattingBox.IsChecked == true;
+        var modelName = GetSelectedModel();
+        PersistSelectedModel(modelName);
 
         _translationCancellation = new CancellationTokenSource();
 
         try
         {
             SetTranslationUiState(isTranslating: true);
-            await TranslateAsync(apiKey, sourceLanguage, targetLanguage, preserveFormatting, _translationCancellation.Token);
+            await TranslateAsync(apiKey, modelName, sourceLanguage, targetLanguage, preserveFormatting, _translationCancellation.Token);
             StatusText.Text = "번역이 완료되었습니다.";
             SaveButton.IsEnabled = true;
         }
@@ -142,7 +163,7 @@ public partial class MainWindow : Window
         }
     }
 
-    private async Task TranslateAsync(string apiKey, string sourceLanguage, string targetLanguage, bool preserveFormatting, CancellationToken cancellationToken)
+    private async Task TranslateAsync(string apiKey, string? modelName, string sourceLanguage, string targetLanguage, bool preserveFormatting, CancellationToken cancellationToken)
     {
         var total = _entries.Count;
         var processed = 0;
@@ -157,7 +178,7 @@ public partial class MainWindow : Window
         {
             cancellationToken.ThrowIfCancellationRequested();
             var batch = orderedEntries.Skip(i).Take(BatchSize).ToList();
-            var translations = await _translationService.TranslateBatchAsync(batch, apiKey, sourceLanguage, targetLanguage, preserveFormatting, cancellationToken).ConfigureAwait(true);
+            var translations = await _translationService.TranslateBatchAsync(batch, apiKey, modelName, sourceLanguage, targetLanguage, preserveFormatting, cancellationToken).ConfigureAwait(true);
 
             foreach (var entry in batch)
             {
@@ -186,6 +207,7 @@ public partial class MainWindow : Window
         SaveButton.IsEnabled = !isTranslating && _entries.Any(e => !string.IsNullOrWhiteSpace(e.TranslatedText));
         Progress.Visibility = isTranslating ? Visibility.Visible : Visibility.Collapsed;
         Progress.Value = 0;
+        ModelBox.IsEnabled = !isTranslating;
     }
 
     private void SetBusyState(bool isBusy, string? message = null)
@@ -267,10 +289,33 @@ public partial class MainWindow : Window
         return comboBox.Text;
     }
 
+    private string GetSelectedModel()
+    {
+        var modelName = ModelBox.Text?.Trim();
+        if (!string.IsNullOrWhiteSpace(modelName))
+        {
+            return modelName;
+        }
+
+        if (!string.IsNullOrWhiteSpace(_settings.PreferredModel))
+        {
+            return _settings.PreferredModel;
+        }
+
+        return GeminiTranslationService.DefaultModelName;
+    }
+
+    private void OnModelTextChanged(object sender, RoutedEventArgs e)
+    {
+        var modelName = ModelBox.Text?.Trim() ?? string.Empty;
+        PersistSelectedModel(string.IsNullOrWhiteSpace(modelName) ? GeminiTranslationService.DefaultModelName : modelName);
+    }
+
     private void OnApiKeyChanged(object sender, RoutedEventArgs e)
     {
         var apiKey = ApiKeyBox.Password ?? string.Empty;
-        PersistApiKey(apiKey.Trim());
+        apiKey = apiKey.Trim();
+        PersistApiKey(apiKey);
     }
 
     private void PersistApiKey(string apiKey)
@@ -288,7 +333,30 @@ public partial class MainWindow : Window
         catch (Exception ex)
         {
             StatusText.Text = "API 키 저장에 실패했습니다.";
-            System.Diagnostics.Debug.WriteLine($"Failed to persist API key: {ex.Message}");
+            Debug.WriteLine($"Failed to persist API key: {ex.Message}");
+        }
+    }
+
+    private void PersistSelectedModel(string modelName)
+    {
+        if (string.IsNullOrWhiteSpace(modelName))
+        {
+            modelName = GeminiTranslationService.DefaultModelName;
+        }
+
+        if (string.Equals(_settings.PreferredModel, modelName, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        _settings.PreferredModel = modelName;
+        try
+        {
+            SettingsService.Save(_settings);
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"Failed to persist model: {ex.Message}");
         }
     }
 }

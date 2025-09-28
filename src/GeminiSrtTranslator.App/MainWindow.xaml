@@ -18,6 +18,8 @@
         <StackPanel Orientation="Horizontal" Grid.Row="0" Margin="0 0 0 8" VerticalAlignment="Center">
             <TextBlock Text="Gemini API Key" VerticalAlignment="Center" />
             <PasswordBox x:Name="ApiKeyBox" Width="260" PasswordChar="●" Margin="8 0 0 0"/>
+            <TextBlock Text="모델" VerticalAlignment="Center" Margin="16 0 0 0" />
+            <TextBox x:Name="ModelBox" Width="200" Margin="8 0 0 0" Text="gemini-2.5-flash"/>
             <TextBlock Text="원본 언어" VerticalAlignment="Center" Margin="16 0 0 0" />
             <ComboBox x:Name="SourceLanguageBox" Width="120" SelectedIndex="0">
                 <ComboBoxItem Content="auto" />
@@ -27,7 +29,7 @@
                 <ComboBoxItem Content="zh" />
             </ComboBox>
             <TextBlock Text="목표 언어" VerticalAlignment="Center" Margin="16 0 0 0" />
-            <ComboBox x:Name="TargetLanguageBox" Width="120" SelectedIndex="1">
+            <ComboBox x:Name="TargetLanguageBox" Width="120" SelectedIndex="0">
                 <ComboBoxItem Content="ko" />
                 <ComboBoxItem Content="en" />
                 <ComboBoxItem Content="ja" />

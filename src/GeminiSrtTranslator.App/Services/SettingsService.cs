@@ -7,6 +7,7 @@ namespace GeminiSrtTranslator.Services;
 public sealed class AppSettings
 {
     public string? GeminiApiKey { get; set; }
+    public string? PreferredModel { get; set; }
 }
 
 public static class SettingsService

@@ -1,8 +1,12 @@
 using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.Linq;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
+using System.Threading;
 using GeminiSrtTranslator.Models;
 
 namespace GeminiSrtTranslator.Services;
@@ -10,7 +14,7 @@ namespace GeminiSrtTranslator.Services;
 public class GeminiTranslationService
 {
     private const string Endpoint = "https://generativelanguage.googleapis.com/v1beta";
-    private const string Model = "gemini-2.5-flesh";
+    internal const string DefaultModelName = "gemini-2.5-flash";
     private static readonly JsonSerializerOptions SerializerOptions = new(JsonSerializerDefaults.Web)
     {
         WriteIndented = false
@@ -27,6 +31,7 @@ public class GeminiTranslationService
     public async Task<IReadOnlyDictionary<int, string>> TranslateBatchAsync(
         IReadOnlyList<SubtitleEntry> entries,
         string apiKey,
+        string? modelName,
         string sourceLanguage,
         string targetLanguage,
         bool preserveFormatting,
@@ -43,6 +48,7 @@ public class GeminiTranslationService
             throw new ArgumentException("API 키를 입력하세요.", nameof(apiKey));
         }
 
+        var model = string.IsNullOrWhiteSpace(modelName) ? DefaultModelName : modelName;
         var instruction = BuildPrompt(entries, sourceLanguage, targetLanguage, preserveFormatting);
         var request = new GeminiRequest
         {
@@ -62,13 +68,27 @@ public class GeminiTranslationService
             }
         };
 
-        using var message = new HttpRequestMessage(HttpMethod.Post, $"{Endpoint}/models/{Model}:generateContent?key={apiKey}")
+        var requestUri = $"{Endpoint}/models/{model}:generateContent?key={apiKey}";
+        var payload = JsonSerializer.Serialize(request, SerializerOptions);
+
+        Debug.WriteLine("[Gemini] Sending request");
+        Debug.WriteLine($"  URI: {MaskApiKey(requestUri, apiKey)}");
+        Debug.WriteLine($"  Model: {model}");
+        Debug.WriteLine($"  Source: {sourceLanguage} -> Target: {targetLanguage}");
+        Debug.WriteLine($"  Entries: {entries.Count}");
+        Debug.WriteLine($"  Payload bytes: {Encoding.UTF8.GetByteCount(payload)}");
+
+        using var message = new HttpRequestMessage(HttpMethod.Post, requestUri)
         {
-            Content = new StringContent(JsonSerializer.Serialize(request, SerializerOptions), Encoding.UTF8, "application/json")
+            Content = new StringContent(payload, Encoding.UTF8, "application/json")
         };
 
         using var response = await _httpClient.SendAsync(message, cancellationToken).ConfigureAwait(false);
         var content = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+
+        Debug.WriteLine("[Gemini] Response received");
+        Debug.WriteLine($"  StatusCode: {(int)response.StatusCode} {response.ReasonPhrase}");
+        Debug.WriteLine($"  Body preview: {Truncate(content, 1024)}");
 
         if (!response.IsSuccessStatusCode)
         {
@@ -82,32 +102,32 @@ public class GeminiTranslationService
     {
         var sb = new StringBuilder();
         sb.AppendLine("You are a subtitle translation assistant.");
-        sb.AppendLine($"Translate the following SRT subtitle segments from '{sourceLanguage}' to '{targetLanguage}'.");
-        sb.AppendLine("Respond strictly in JSON array format where each item has fields 'index' and 'translation'.");
-        sb.AppendLine("Do not add explanations or extra text outside the JSON.");
+        sb.AppendLine($"Translate the following SRT subtitle segments from '{sourceLanguage}' to '{targetLanguage}' with natural phrasing.");
+        sb.AppendLine("Return only valid JSON containing an object with a 'translations' array.");
+        sb.AppendLine("Each array item must include integer field 'index' and string field 'text'.");
+        sb.AppendLine("Do not include explanations, comments, or trailing text outside the JSON object.");
         if (preserveFormatting)
         {
-            sb.AppendLine("Preserve line breaks and inline formatting markers (HTML tags, brackets, punctuation).");
+            sb.AppendLine("Preserve line breaks and inline formatting markers (HTML tags, brackets, punctuation) inside the translated text.");
         }
 
         sb.AppendLine();
-        sb.AppendLine("Input:");
-
-        foreach (var entry in entries)
-        {
-            sb.AppendLine($"- index: {entry.Index}");
-            sb.AppendLine($"  text: |-");
-            foreach (var line in entry.Text.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None))
+        sb.AppendLine("Input subtitles as JSON array:");
+        var inputPayload = entries
+            .Select(entry => new
             {
-                sb.AppendLine($"    {line}");
-            }
-        }
-
+                index = entry.Index,
+                text = entry.Text.Replace("\r\n", "\n")
+            })
+            .ToList();
+        sb.AppendLine(JsonSerializer.Serialize(inputPayload, SerializerOptions));
         sb.AppendLine();
-        sb.AppendLine("Output JSON example:");
-        sb.AppendLine("[");
-        sb.AppendLine("  { \"index\": 1, \"translation\": \"첫 번째 문장\" }");
-        sb.AppendLine("]");
+        sb.AppendLine("Respond with:");
+        sb.AppendLine("{");
+        sb.AppendLine("  \"translations\": [");
+        sb.AppendLine("    { \"index\": 1, \"text\": \"번역된 문장\" }");
+        sb.AppendLine("  ]");
+        sb.AppendLine("}");
 
         return sb.ToString();
     }
@@ -135,16 +155,41 @@ public class GeminiTranslationService
         text = NormalizeJsonPayload(text);
 
         using var translationDocument = JsonDocument.Parse(text);
-        var result = new Dictionary<int, string>();
-        foreach (var element in translationDocument.RootElement.EnumerateArray())
+        var root = translationDocument.RootElement;
+
+        JsonElement translationArray;
+        switch (root.ValueKind)
         {
-            if (!element.TryGetProperty("index", out var indexProperty) || !element.TryGetProperty("translation", out var translationProperty))
+            case JsonValueKind.Object when root.TryGetProperty("translations", out var translationsProperty) && translationsProperty.ValueKind == JsonValueKind.Array:
+                translationArray = translationsProperty;
+                break;
+            case JsonValueKind.Array:
+                translationArray = root;
+                break;
+            default:
+                throw new InvalidOperationException("Gemini 응답이 예상한 JSON 형식과 다릅니다.");
+        }
+
+        var result = new Dictionary<int, string>();
+        foreach (var element in translationArray.EnumerateArray())
+        {
+            if (!element.TryGetProperty("index", out var indexProperty))
             {
                 continue;
             }
 
             var index = indexProperty.GetInt32();
-            var translation = translationProperty.GetString() ?? string.Empty;
+            string translation = string.Empty;
+
+            if (element.TryGetProperty("text", out var textProperty))
+            {
+                translation = textProperty.GetString() ?? string.Empty;
+            }
+            else if (element.TryGetProperty("translation", out var translationProperty))
+            {
+                translation = translationProperty.GetString() ?? string.Empty;
+            }
+
             result[index] = translation;
         }
 
@@ -180,6 +225,27 @@ public class GeminiTranslationService
 
         var inner = trimmed.Substring(contentStart, closingFenceIndex - contentStart);
         return inner.Trim();
+    }
+
+    private static string Truncate(string value, int maxLength)
+    {
+        if (string.IsNullOrEmpty(value) || value.Length <= maxLength)
+        {
+            return value;
+        }
+
+        return value.Substring(0, maxLength) + "...";
+    }
+
+    private static string MaskApiKey(string text, string apiKey)
+    {
+        if (string.IsNullOrEmpty(apiKey) || apiKey.Length < 6)
+        {
+            return text;
+        }
+
+        var masked = apiKey[..3] + new string('*', apiKey.Length - 6) + apiKey[^3..];
+        return text.Replace(apiKey, masked, StringComparison.Ordinal);
     }
 
     private sealed class GeminiRequest
