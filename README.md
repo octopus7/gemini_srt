@@ -14,7 +14,7 @@ WPF 기반의 SRT 자막 번역 도구입니다. Google Gemini API의 `generateC
 ## 준비 사항
 - Windows 10 이상 환경 (WPF 실행 필요)
 - .NET 8.0 SDK 및 Windows Desktop 개발 워크로드
-- Google AI Studio에서 발급한 Gemini API 키
+- Google AI Studio에서 발급한 Gemini API 키 [링크](https://aistudio.google.com/app/api-keys)
 
 ## 실행 방법
 1. 리포지토리를 클론한 후 Visual Studio 2022(또는 `dotnet` CLI)에서 `GeminiSrtTranslator.sln`을 엽니다.
